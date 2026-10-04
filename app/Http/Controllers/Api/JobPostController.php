@@ -3,8 +3,10 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Resources\JobPostResource;
 use Illuminate\Http\Request;
 use App\Models\JobPost;
+use App\Models\JobCategory;
 
 class JobPostController extends Controller
 {
@@ -13,8 +15,9 @@ class JobPostController extends Controller
      */
     public function index()
     {
-        $posts = JobPost::all();
-        return response()->json($posts);
+        $posts = JobPost::with(['category', 'employer', 'skills'])->get();
+
+        return JobPostResource::collection($posts);
     }
 
     /**
@@ -43,6 +46,8 @@ class JobPostController extends Controller
 
                 'status' => 'required|in:active,closed',
                 'expires_at' => 'nullable|date',
+                'skills' => 'nullable|array',
+                'skills.*' => 'exists:skills,id',
             ]);
         $employerId = auth()->id();
 
@@ -67,6 +72,8 @@ class JobPostController extends Controller
             'status' => $validated['status'],
             'expires_at' => $validated['expires_at'] ?? null,
         ]);
+        $jobPost->skills()->sync($validated['skills'] ?? []);
+
 
         return response()->json([
             'message' => 'Job post created successfully',
@@ -81,13 +88,15 @@ class JobPostController extends Controller
      */
     public function show(string $jobPost)
     {
-        $post = JobPost::find($jobPost);
+        $post = JobPost::with(['category', 'employer'])->find($jobPost);
 
         if (!$post) {
-            return response()->json(['message' => 'Job post not found'], 404);
+            return response()->json([
+                'message' => 'Job post not found'
+            ], 404);
         }
 
-        return response()->json($post);
+        return new JobPostResource($post);
     }
 
     /**
@@ -127,14 +136,15 @@ class JobPostController extends Controller
 
                 'status' => 'required|in:active,closed',
                 'expires_at' => 'nullable|date',
+                'skills' => 'nullable|array',
+                'skills.*' => 'exists:skills,id',
             ]);
 
         $post->update($validated);
 
-        return response()->json([
-            'message' => 'Job post updated successfully',
-            'job_post' => $post,
-        ]);
+        $syncResult = $post->skills()->sync($validated['skills'] ?? []);
+
+        return new JobPostResource($post->load(['category', 'employer', 'skills']));
     }
 
     /**
@@ -145,15 +155,23 @@ class JobPostController extends Controller
         $post = JobPost::find($jobPost);
 
         if (!$post) {
-            return response()->json(['message' => 'Job post not found'], 404);
+            return response()->json([
+                'message' => 'Job post not found'
+            ], 404);
         }
+
         if ($post->employer_id !== auth()->id()) {
             return response()->json([
                 'message' => 'Unauthorized'
             ], 403);
         }
+
+        $post->skills()->detach();
+
         $post->delete();
 
-        return response()->json(['message' => 'Job post deleted']);
+        return response()->json([
+            'message' => 'Job post deleted'
+        ]);
     }
 }
