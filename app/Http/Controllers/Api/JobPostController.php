@@ -13,9 +13,44 @@ class JobPostController extends Controller
     /**
      * Display a listing of the resource.
      */
-    public function index()
+    public function index(Request $request)
     {
-        $posts = JobPost::with(['category', 'employer', 'skills'])->get();
+        $filters = $request->validate([
+            'q' => 'sometimes|string|max:255',
+            'category_id' => 'sometimes|integer|exists:job_categories,id',
+            'location' => 'sometimes|string|max:255',
+            'employment_type' => 'sometimes|in:full_time,part_time,remote,freelance,internship',
+            'per_page' => 'sometimes|integer|min:1|max:100',
+            'page' => 'sometimes|integer|min:1',
+        ]);
+
+        $query = JobPost::publiclyVisible()
+            ->with(['category', 'employer', 'skills']);
+
+        if (!empty($filters['q'])) {
+            $keyword = '%' . $filters['q'] . '%';
+            $query->where(function ($query) use ($keyword): void {
+                $query->where('title', 'like', $keyword)
+                    ->orWhere('description', 'like', $keyword);
+            });
+        }
+
+        if (isset($filters['category_id'])) {
+            $query->where('category_id', $filters['category_id']);
+        }
+
+        if (isset($filters['location'])) {
+            $query->where('location', 'like', '%' . $filters['location'] . '%');
+        }
+
+        if (isset($filters['employment_type'])) {
+            $query->where('employment_type', $filters['employment_type']);
+        }
+
+        $posts = $query
+            ->orderBy('id')
+            ->paginate($filters['per_page'] ?? 15)
+            ->appends($filters);
 
         return JobPostResource::collection($posts);
     }
@@ -88,7 +123,9 @@ class JobPostController extends Controller
      */
     public function show(string $jobPost)
     {
-        $post = JobPost::with(['category', 'employer'])->find($jobPost);
+        $post = JobPost::publiclyVisible()
+            ->with(['category', 'employer'])
+            ->find($jobPost);
 
         if (!$post) {
             return response()->json([
