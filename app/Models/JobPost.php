@@ -4,9 +4,11 @@ namespace App\Models;
 
 use App\Enums\EmploymentType;
 use App\Enums\JobStatus;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class JobPost extends Model
@@ -32,7 +34,7 @@ class JobPost extends Model
         'google_form_url',
         'status',
         'expires_at',
-        
+
     ];
 
     /**
@@ -45,6 +47,16 @@ class JobPost extends Model
             'status' => JobStatus::class,
             'expires_at' => 'datetime',
         ];
+    }
+
+    public function scopePubliclyVisible(Builder $query): Builder
+    {
+        return $query
+            ->where('status', JobStatus::Active->value)
+            ->where(function (Builder $query): void {
+                $query->whereNull('expires_at')
+                    ->orWhere('expires_at', '>=', now());
+            });
     }
 
     public function employer(): BelongsTo
@@ -60,5 +72,10 @@ class JobPost extends Model
     public function skills(): BelongsToMany
     {
         return $this->belongsToMany(Skill::class, 'job_post_skills', 'job_post_id', 'skill_id');
+    }
+
+    public function applications(): HasMany
+    {
+        return $this->hasMany(JobApplication::class);
     }
 }
