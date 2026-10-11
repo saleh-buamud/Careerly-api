@@ -1,19 +1,23 @@
 # CareerLy API Frontend Integration Guide
 
-**Documentation scope:** current registered Laravel API implementation, inspected on 2026-10-10. JSON examples are representative and derived from controllers, resources, models, and feature tests; they are not captured live HTTP responses. Hosts, ports, generated IDs, timestamps, and token values vary by environment.
+**Documentation scope:** current registered Laravel API implementation, inspected on 2026-10-11. JSON examples are representative and derived from controllers, resources, models, and feature tests; they are not captured live HTTP responses. Hosts, ports, generated IDs, timestamps, and token values vary by environment.
 
 ## 1. API Overview
 
 - **Backend:** Laravel 12, PHP `^8.2`, Laravel Sanctum `^4.0`.
-- **API version:** no version segment is defined. Routes currently use the `/api` prefix.
-- **Example local base URL:** `http://127.0.0.1:8000/api`. The hostname and port depend on how the backend is hosted.
-- **Production:** configure the deployed HTTPS API origin, including `/api`, in the frontend environment. Example: `VITE_API_BASE_URL=https://api.example.test/api`.
+- **API version:** v1 is the current version. All application API routes are under `/api/v1`; unversioned legacy API endpoints are not registered.
+- **Versioning rollout:** this is a breaking URL-prefix change. Update frontend base URLs to `/api/v1`; requests using the former unversioned paths return 404. No legacy aliases are maintained.
+- **Example local base URL:** `http://127.0.0.1:8000/api/v1`. The hostname and port depend on how the backend is hosted.
+- **Production:** configure the deployed HTTPS API origin, including `/api/v1`, in the frontend environment. Example: `VITE_API_BASE_URL=https://api.example.test/api/v1`.
 - **Request/response format:** JSON for request bodies and JSON responses. Send `Accept: application/json` so validation/auth errors are returned as JSON. Send `Content-Type: application/json` when sending a JSON body. GET/DELETE requests do not need a body.
 - **Authentication:** bearer personal access tokens from Sanctum. Login and registration return a `token` field in the JSON body. Use `Authorization: Bearer <token>` on protected requests. Token text has Sanctum's `id|secret` form; the exact value is secret and must not be logged.
 - **Token expiry:** `sanctum.expiration` is currently `null` (no global minute-based expiry configured); no refresh-token endpoint exists. Review token lifetime and revocation policy for each deployment.
 - **Cookies:** the documented API workflow issues bearer tokens. The feature tests verify bearer-token logout. Cookie-based SPA authentication is not verified as an integration contract here.
 - **Token handling:** prefer holding a token in memory. Persistent browser storage such as `localStorage` is readable by injected JavaScript and increases the impact of XSS. If persistence is required, review the threat model and use appropriate XSS defenses. Never put a token or backend secret in source control.
 - **Vite configuration:** `VITE_API_BASE_URL` is exposed in the built frontend. It may contain a public API URL, but must never contain a password, private API key, or other backend secret.
+- **Rate limits:** v1 routes have a 120 requests/minute limit keyed by authenticated user ID, or client IP when unauthenticated. Registration and login also have a stricter 10 requests/minute limit; since these routes are public, that limit is keyed by client IP. `429 Too Many Requests` may be returned when a limit is exceeded.
+- **CORS:** set backend `CORS_ALLOWED_ORIGINS` to a comma-separated allowlist of exact frontend origins (scheme/host/port, no path). The example environment enables the common local Vite origins. Credentials are disabled because the API uses bearer tokens. Configure production origins explicitly; an empty allowlist does not enable cross-origin browser access.
+- **Production settings:** set `APP_DEBUG=false` in production. Configure trusted proxies to the actual deployment proxy addresses; this repository has no deployment topology from which to safely choose trusted proxy IPs.
 - **Profile workflow:** registration does not create a profile. Employers and job seekers create their own profile afterward using the matching profile endpoint.
 - **Not implemented:** no password-reset, email-verification, refresh-token, profile-delete, saved-job, or job-seeker application-history endpoint was found.
 
@@ -26,6 +30,8 @@ Roles are checked by backend middleware/controller logic; frontend role checks a
 ### Pagination
 
 Public job listing and employer application listing use Laravel resource pagination. The response has top-level `data`, `links`, and `meta`. Both accept `per_page` from 1 through 100, default 15. Both use `page` through Laravel's paginator; public jobs explicitly validate it as an integer of at least 1. Employer application listing does not add its own `page` validation. Job list ordering is ascending `id`; employer applications are newest-first by `created_at`, then descending `id`.
+
+All paths shown below are relative to the base URL ending in `/api/v1`. Job-post updates retain their existing `PUT` method; versioning does not change it to `PATCH`.
 
 ## 2. Common Request and Error Conventions
 
@@ -65,13 +71,14 @@ Representative general errors:
 | `404 Not Found` | Missing record; closed/expired public job; application not owned by requesting employer | A JSON `message` is returned by the corresponding controller. |
 | `409 Conflict` | Duplicate profile/application or disallowed application-status transition | Controller-specific JSON `message`. |
 | `422 Unprocessable Content` | Request validation failure | Laravel `{message, errors}` JSON structure. |
+| `429 Too Many Requests` | v1 general/authentication rate limit reached | Laravel throttle response; honor the `Retry-After` header when present and retry after the indicated delay. |
 | `500 Internal Server Error` | Unexpected server-side exception | No stable custom 500 response is defined. Do not depend on debug exception details; production response depends on server configuration. |
 
 ## 3. Authentication
 
 ### Register
 
-**Method and URL:** `POST /api/register`
+**Method and URL:** `POST /api/v1/register`
 
 **Purpose:** Create an account and issue a Sanctum personal access token. It does not create a profile.
 
@@ -97,7 +104,7 @@ Representative general errors:
 **Example request:**
 
 ```http
-POST /api/register HTTP/1.1
+POST /api/v1/register HTTP/1.1
 Host: 127.0.0.1:8000
 Accept: application/json
 Content-Type: application/json
@@ -139,7 +146,7 @@ The `token` is the bearer token value to send on later protected calls. `passwor
 
 ### Login
 
-**Method and URL:** `POST /api/login`
+**Method and URL:** `POST /api/v1/login`
 
 **Purpose:** Check credentials and issue a new Sanctum personal access token.
 
@@ -192,7 +199,7 @@ The `token` is the bearer token value to send on later protected calls. `passwor
 
 ### Logout
 
-**Method and URL:** `POST /api/logout`
+**Method and URL:** `POST /api/v1/logout`
 
 **Purpose:** Revoke the current Sanctum personal access token.
 
@@ -209,7 +216,7 @@ The `token` is the bearer token value to send on later protected calls. `passwor
 **Example request:**
 
 ```http
-POST /api/logout HTTP/1.1
+POST /api/v1/logout HTTP/1.1
 Host: 127.0.0.1:8000
 Accept: application/json
 Authorization: Bearer <token-from-login>
@@ -229,7 +236,7 @@ Authorization: Bearer <token-from-login>
 
 ### List/search jobs
 
-**Method and URL:** `GET /api/job-posts`
+**Method and URL:** `GET /api/v1/job-posts`
 
 **Purpose:** List publicly visible jobs and apply supported database-side filters.
 
@@ -255,7 +262,7 @@ Filters combine with AND, except the `q` group which matches title or descriptio
 **Example request:**
 
 ```http
-GET /api/job-posts?q=backend&category_id=4&location=Amman&employment_type=full_time&per_page=10&page=1 HTTP/1.1
+GET /api/v1/job-posts?q=backend&category_id=4&location=Amman&employment_type=full_time&per_page=10&page=1 HTTP/1.1
 Host: 127.0.0.1:8000
 Accept: application/json
 ```
@@ -290,8 +297,8 @@ Accept: application/json
     }
   ],
   "links": {
-    "first": "http://127.0.0.1:8000/api/job-posts?q=backend&category_id=4&location=Amman&employment_type=full_time&per_page=10&page=1",
-    "last": "http://127.0.0.1:8000/api/job-posts?q=backend&category_id=4&location=Amman&employment_type=full_time&per_page=10&page=1",
+    "first": "http://127.0.0.1:8000/api/v1/job-posts?q=backend&category_id=4&location=Amman&employment_type=full_time&per_page=10&page=1",
+    "last": "http://127.0.0.1:8000/api/v1/job-posts?q=backend&category_id=4&location=Amman&employment_type=full_time&per_page=10&page=1",
     "prev": null,
     "next": null
   },
@@ -301,10 +308,10 @@ Accept: application/json
     "last_page": 1,
     "links": [
       {"url": null, "label": "&laquo; Previous", "active": false},
-      {"url": "http://127.0.0.1:8000/api/job-posts?q=backend&category_id=4&location=Amman&employment_type=full_time&per_page=10&page=1", "label": "1", "active": true},
+      {"url": "http://127.0.0.1:8000/api/v1/job-posts?q=backend&category_id=4&location=Amman&employment_type=full_time&per_page=10&page=1", "label": "1", "active": true},
       {"url": null, "label": "Next &raquo;", "active": false}
     ],
-    "path": "http://127.0.0.1:8000/api/job-posts",
+    "path": "http://127.0.0.1:8000/api/v1/job-posts",
     "per_page": 10,
     "to": 1,
     "total": 1
@@ -320,7 +327,7 @@ The example host, data, and totals are illustrative. Laravel generates `meta.lin
 
 ### View one public job
 
-**Method and URL:** `GET /api/job-posts/{jobPost}`
+**Method and URL:** `GET /api/v1/job-posts/{jobPost}`
 
 **Purpose:** Fetch a single publicly visible job by numeric database ID.
 
@@ -335,7 +342,7 @@ The example host, data, and totals are illustrative. Laravel generates `meta.lin
 **Example request:**
 
 ```http
-GET /api/job-posts/25 HTTP/1.1
+GET /api/v1/job-posts/25 HTTP/1.1
 Host: 127.0.0.1:8000
 Accept: application/json
 ```
@@ -379,7 +386,7 @@ All three management routes require a Sanctum token and `employer` role. Employe
 
 ### Create job post
 
-**Method and URL:** `POST /api/job-posts`
+**Method and URL:** `POST /api/v1/job-posts`
 
 **Purpose:** Create an employer-owned job post and synchronize optional skill IDs.
 
@@ -433,7 +440,7 @@ At least one of email, phone, or Google Form URL is required. The `employer_id` 
 }
 ```
 
-**Successful response:** `201 Created`. `job_post` is serialized directly from the model; it is not a `JobPostResource` here and does not include nested category/employer/skills.
+**Successful response:** `201 Created`. `job_post` is serialized through `JobPostResource`, with the existing `message`/`job_post` envelope preserved. Relationships are not loaded for this response, so nested category/employer/skills are omitted. Internal fields such as `deleted_at` are not exposed.
 
 ```json
 {
@@ -456,8 +463,7 @@ At least one of email, phone, or Google Form URL is required. The `employer_id` 
     "status": "active",
     "expires_at": "2026-12-01T00:00:00.000000Z",
     "created_at": "2026-10-01T12:00:00.000000Z",
-    "updated_at": "2026-10-01T12:00:00.000000Z",
-    "deleted_at": null
+    "updated_at": "2026-10-01T12:00:00.000000Z"
   }
 }
 ```
@@ -468,7 +474,7 @@ At least one of email, phone, or Google Form URL is required. The `employer_id` 
 
 ### Update job post
 
-**Method and URL:** `PUT /api/job-posts/{jobPost}`
+**Method and URL:** `PUT /api/v1/job-posts/{jobPost}`
 
 **Purpose:** Replace writable job fields for a job the employer owns.
 
@@ -520,7 +526,7 @@ At least one of email, phone, or Google Form URL is required. The `employer_id` 
 
 ### Delete job post
 
-**Method and URL:** `DELETE /api/job-posts/{jobPost}`
+**Method and URL:** `DELETE /api/v1/job-posts/{jobPost}`
 
 **Purpose:** Soft-delete a job owned by the authenticated employer and detach skill relations.
 
@@ -550,7 +556,7 @@ The controllers return raw Eloquent model JSON for `profile` rather than the sep
 
 ### Employer profile: read
 
-**Method and URL:** `GET /api/employer-profile`
+**Method and URL:** `GET /api/v1/employer-profile`
 
 **Purpose:** Read the authenticated employer's profile.
 
@@ -584,7 +590,7 @@ The controllers return raw Eloquent model JSON for `profile` rather than the sep
 
 ### Employer profile: create
 
-**Method and URL:** `POST /api/employer-profile`
+**Method and URL:** `POST /api/v1/employer-profile`
 
 **Purpose:** Create the authenticated employer's one profile.
 
@@ -635,7 +641,7 @@ The controllers return raw Eloquent model JSON for `profile` rather than the sep
 
 ### Employer profile: update
 
-**Method and URL:** `PUT /api/employer-profile`
+**Method and URL:** `PUT /api/v1/employer-profile`
 
 **Purpose:** Update selected fields on the authenticated employer's profile.
 
@@ -671,7 +677,7 @@ The controllers return raw Eloquent model JSON for `profile` rather than the sep
 
 ### Job-seeker profile: read
 
-**Method and URL:** `GET /api/job-seeker-profile`
+**Method and URL:** `GET /api/v1/job-seeker-profile`
 
 **Purpose:** Read the authenticated job seeker's profile.
 
@@ -704,7 +710,7 @@ The controllers return raw Eloquent model JSON for `profile` rather than the sep
 
 ### Job-seeker profile: create
 
-**Method and URL:** `POST /api/job-seeker-profile`
+**Method and URL:** `POST /api/v1/job-seeker-profile`
 
 **Purpose:** Create the authenticated job seeker's one profile.
 
@@ -755,7 +761,7 @@ An empty object is allowed and creates a profile with nullable fields unset/null
 
 ### Job-seeker profile: update
 
-**Method and URL:** `PUT /api/job-seeker-profile`
+**Method and URL:** `PUT /api/v1/job-seeker-profile`
 
 **Purpose:** Update the authenticated job seeker's existing profile.
 
@@ -794,7 +800,7 @@ The database unique constraint is `(job_post_id, job_seeker_id)`. New applicatio
 
 ### Apply to a job
 
-**Method and URL:** `POST /api/job-posts/{jobPost}/applications`
+**Method and URL:** `POST /api/v1/job-posts/{jobPost}/applications`
 
 **Purpose:** Submit the authenticated job seeker's application to a publicly visible job.
 
@@ -809,7 +815,7 @@ The database unique constraint is `(job_post_id, job_seeker_id)`. New applicatio
 **Example request:**
 
 ```http
-POST /api/job-posts/25/applications HTTP/1.1
+POST /api/v1/job-posts/25/applications HTTP/1.1
 Host: 127.0.0.1:8000
 Accept: application/json
 Authorization: Bearer <job-seeker-token>
@@ -837,7 +843,7 @@ Because the create response resource has no relations loaded, it contains no `jo
 
 ### Employer application list
 
-**Method and URL:** `GET /api/employer/applications`
+**Method and URL:** `GET /api/v1/employer/applications`
 
 **Purpose:** List applications attached to jobs owned by the authenticated employer.
 
@@ -872,7 +878,7 @@ Because the create response resource has no relations loaded, it contains no `jo
 
 ### Update application status
 
-**Method and URL:** `PATCH /api/employer/applications/{jobApplication}`
+**Method and URL:** `PATCH /api/v1/employer/applications/{jobApplication}`
 
 **Purpose:** Change an application status for an application attached to one of the employer's jobs.
 
@@ -924,7 +930,7 @@ All operations in these domains—including list and detail—require `auth:sanc
 
 #### List categories
 
-**Method and URL:** `GET /api/job-categories`
+**Method and URL:** `GET /api/v1/job-categories`
 
 **Purpose:** Return all categories. **Authentication/role:** Sanctum, admin. **Headers:** Accept JSON + Bearer. **Query/body:** none.
 
@@ -938,7 +944,7 @@ All operations in these domains—including list and detail—require `auth:sanc
 
 #### Show category
 
-**Method and URL:** `GET /api/job-categories/{job_category}`
+**Method and URL:** `GET /api/v1/job-categories/{job_category}`
 
 **Purpose:** Return one raw category model. **Authentication/role:** Sanctum, admin. **Headers:** Accept JSON + Bearer. **Query/body:** none.
 
@@ -946,7 +952,7 @@ All operations in these domains—including list and detail—require `auth:sanc
 
 #### Create category
 
-**Method and URL:** `POST /api/job-categories`
+**Method and URL:** `POST /api/v1/job-categories`
 
 **Purpose:** Create a category. **Authentication/role:** Sanctum, admin. **Headers:** JSON + Bearer. **Query:** none.
 
@@ -975,7 +981,7 @@ All operations in these domains—including list and detail—require `auth:sanc
 
 #### Update category
 
-**Method and URL:** `PUT /api/job-categories/{job_category}` or `PATCH /api/job-categories/{job_category}`
+**Method and URL:** `PUT /api/v1/job-categories/{job_category}` or `PATCH /api/v1/job-categories/{job_category}`
 
 **Purpose:** Update category fields. **Authentication/role:** Sanctum, admin. **Headers:** JSON + Bearer. **Query:** none.
 
@@ -1000,7 +1006,7 @@ All operations in these domains—including list and detail—require `auth:sanc
 
 #### Delete category
 
-**Method and URL:** `DELETE /api/job-categories/{job_category}`
+**Method and URL:** `DELETE /api/v1/job-categories/{job_category}`
 
 **Purpose:** Delete a category. **Authentication/role:** Sanctum, admin. **Headers:** Accept JSON + Bearer. No body.
 
@@ -1012,7 +1018,7 @@ All operations in these domains—including list and detail—require `auth:sanc
 
 #### List skills
 
-**Method and URL:** `GET /api/skills`
+**Method and URL:** `GET /api/v1/skills`
 
 **Purpose:** Return all skills. **Authentication/role:** Sanctum, admin. **Headers:** Accept JSON + Bearer. No query/body.
 
@@ -1026,7 +1032,7 @@ All operations in these domains—including list and detail—require `auth:sanc
 
 #### Show skill
 
-**Method and URL:** `GET /api/skills/{skill}`
+**Method and URL:** `GET /api/v1/skills/{skill}`
 
 **Purpose:** Return one raw skill model. **Authentication/role:** Sanctum, admin. **Headers:** Accept JSON + Bearer. No query/body.
 
@@ -1034,7 +1040,7 @@ All operations in these domains—including list and detail—require `auth:sanc
 
 #### Create skill
 
-**Method and URL:** `POST /api/skills`
+**Method and URL:** `POST /api/v1/skills`
 
 **Purpose:** Create a skill. **Authentication/role:** Sanctum, admin. **Headers:** JSON + Bearer. **Query:** none.
 
@@ -1062,7 +1068,7 @@ All operations in these domains—including list and detail—require `auth:sanc
 
 #### Update skill
 
-**Method and URL:** `PUT /api/skills/{skill}` or `PATCH /api/skills/{skill}`
+**Method and URL:** `PUT /api/v1/skills/{skill}` or `PATCH /api/v1/skills/{skill}`
 
 **Purpose:** Update a skill. **Authentication/role:** Sanctum, admin. **Headers:** JSON + Bearer. **Query:** none.
 
@@ -1086,7 +1092,7 @@ All operations in these domains—including list and detail—require `auth:sanc
 
 #### Delete skill
 
-**Method and URL:** `DELETE /api/skills/{skill}`
+**Method and URL:** `DELETE /api/v1/skills/{skill}`
 
 **Purpose:** Delete a skill. **Authentication/role:** Sanctum, admin. **Headers:** Accept JSON + Bearer. No body.
 
@@ -1100,7 +1106,7 @@ There are no public/read-only category or skill routes in the current route conf
 
 ### API health
 
-**Method and URL:** `GET /api/test`
+**Method and URL:** `GET /api/v1/test`
 
 **Purpose:** Small API route health response. **Authentication:** Public. **Headers:** `Accept: application/json`. No query/body.
 
@@ -1404,34 +1410,34 @@ There are 28 registered Laravel route entries. `PUT/PATCH` share one resource ro
 
 | Method | Exact path | Purpose | Access | Role | Body? | Typical success |
 |---|---|---|---|---|---:|---:|
-| `POST` | `/api/register` | Register and issue token | Public | None; self-select employer/job_seeker only | Yes | 201 |
-| `POST` | `/api/login` | Authenticate and issue token | Public | None | Yes | 200 |
-| `POST` | `/api/logout` | Revoke current token | Protected | Any authenticated | No | 200 |
-| `GET` | `/api/test` | Health message | Public | None | No | 200 |
-| `GET` | `/api/job-posts` | Search/list visible jobs | Public | None | No | 200 |
-| `GET` | `/api/job-posts/{jobPost}` | View visible job | Public | None | No | 200 |
-| `POST` | `/api/job-posts` | Create job | Protected | Employer | Yes | 201 |
-| `PUT` | `/api/job-posts/{jobPost}` | Update owned job | Protected | Employer owner | Yes | 200 |
-| `DELETE` | `/api/job-posts/{jobPost}` | Soft-delete owned job | Protected | Employer owner | No | 200 |
-| `GET` | `/api/employer-profile` | Read own employer profile | Protected | Employer | No | 200 |
-| `POST` | `/api/employer-profile` | Create own employer profile | Protected | Employer | Yes | 201 |
-| `PUT` | `/api/employer-profile` | Update own employer profile | Protected | Employer | Yes (may be `{}`) | 200 |
-| `GET` | `/api/job-seeker-profile` | Read own job-seeker profile | Protected | Job seeker | No | 200 |
-| `POST` | `/api/job-seeker-profile` | Create own job-seeker profile | Protected | Job seeker | Yes (fields optional) | 201 |
-| `PUT` | `/api/job-seeker-profile` | Update own job-seeker profile | Protected | Job seeker | Yes (may be `{}`) | 200 |
-| `POST` | `/api/job-posts/{jobPost}/applications` | Apply to visible job | Protected | Job seeker | No | 201 |
-| `GET` | `/api/employer/applications` | List applications for own jobs | Protected | Employer | No | 200 |
-| `PATCH` | `/api/employer/applications/{jobApplication}` | Update application status | Protected | Employer of related job | Yes | 200 |
-| `GET` | `/api/job-categories` | List categories | Protected | Admin | No | 200 |
-| `POST` | `/api/job-categories` | Create category | Protected | Admin | Yes | 201 |
-| `GET` | `/api/job-categories/{job_category}` | Read category | Protected | Admin | No | 200 |
-| `PUT/PATCH` | `/api/job-categories/{job_category}` | Update category (`name` required) | Protected | Admin | Yes | 200 |
-| `DELETE` | `/api/job-categories/{job_category}` | Delete category | Protected | Admin | No | 200 |
-| `GET` | `/api/skills` | List skills | Protected | Admin | No | 200 |
-| `POST` | `/api/skills` | Create skill | Protected | Admin | Yes | 201 |
-| `GET` | `/api/skills/{skill}` | Read skill | Protected | Admin | No | 200 |
-| `PUT/PATCH` | `/api/skills/{skill}` | Update skill (`name` required) | Protected | Admin | Yes | 200 |
-| `DELETE` | `/api/skills/{skill}` | Delete skill | Protected | Admin | No | 200 |
+| `POST` | `/api/v1/register` | Register and issue token | Public | None; self-select employer/job_seeker only | Yes | 201 |
+| `POST` | `/api/v1/login` | Authenticate and issue token | Public | None | Yes | 200 |
+| `POST` | `/api/v1/logout` | Revoke current token | Protected | Any authenticated | No | 200 |
+| `GET` | `/api/v1/test` | Health message | Public | None | No | 200 |
+| `GET` | `/api/v1/job-posts` | Search/list visible jobs | Public | None | No | 200 |
+| `GET` | `/api/v1/job-posts/{jobPost}` | View visible job | Public | None | No | 200 |
+| `POST` | `/api/v1/job-posts` | Create job | Protected | Employer | Yes | 201 |
+| `PUT` | `/api/v1/job-posts/{jobPost}` | Update owned job | Protected | Employer owner | Yes | 200 |
+| `DELETE` | `/api/v1/job-posts/{jobPost}` | Soft-delete owned job | Protected | Employer owner | No | 200 |
+| `GET` | `/api/v1/employer-profile` | Read own employer profile | Protected | Employer | No | 200 |
+| `POST` | `/api/v1/employer-profile` | Create own employer profile | Protected | Employer | Yes | 201 |
+| `PUT` | `/api/v1/employer-profile` | Update own employer profile | Protected | Employer | Yes (may be `{}`) | 200 |
+| `GET` | `/api/v1/job-seeker-profile` | Read own job-seeker profile | Protected | Job seeker | No | 200 |
+| `POST` | `/api/v1/job-seeker-profile` | Create own job-seeker profile | Protected | Job seeker | Yes (fields optional) | 201 |
+| `PUT` | `/api/v1/job-seeker-profile` | Update own job-seeker profile | Protected | Job seeker | Yes (may be `{}`) | 200 |
+| `POST` | `/api/v1/job-posts/{jobPost}/applications` | Apply to visible job | Protected | Job seeker | No | 201 |
+| `GET` | `/api/v1/employer/applications` | List applications for own jobs | Protected | Employer | No | 200 |
+| `PATCH` | `/api/v1/employer/applications/{jobApplication}` | Update application status | Protected | Employer of related job | Yes | 200 |
+| `GET` | `/api/v1/job-categories` | List categories | Protected | Admin | No | 200 |
+| `POST` | `/api/v1/job-categories` | Create category | Protected | Admin | Yes | 201 |
+| `GET` | `/api/v1/job-categories/{job_category}` | Read category | Protected | Admin | No | 200 |
+| `PUT/PATCH` | `/api/v1/job-categories/{job_category}` | Update category (`name` required) | Protected | Admin | Yes | 200 |
+| `DELETE` | `/api/v1/job-categories/{job_category}` | Delete category | Protected | Admin | No | 200 |
+| `GET` | `/api/v1/skills` | List skills | Protected | Admin | No | 200 |
+| `POST` | `/api/v1/skills` | Create skill | Protected | Admin | Yes | 201 |
+| `GET` | `/api/v1/skills/{skill}` | Read skill | Protected | Admin | No | 200 |
+| `PUT/PATCH` | `/api/v1/skills/{skill}` | Update skill (`name` required) | Protected | Admin | Yes | 200 |
+| `DELETE` | `/api/v1/skills/{skill}` | Delete skill | Protected | Admin | No | 200 |
 
 ## 13. Verification Notes and Limitations
 

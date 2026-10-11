@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Enums\UserRole;
 use App\Http\Controllers\Controller;
+use App\Http\Resources\EmployerProfileResource;
 use Illuminate\Http\Request;
 
 class EmployerProfileController extends Controller
@@ -33,7 +34,7 @@ class EmployerProfileController extends Controller
                 'email' => $user->email,
                 'phone' => $user->phone,
             ],
-            'profile' => $profile,
+            'profile' => EmployerProfileResource::make($profile)->resolve($request),
         ]);
     }
 
@@ -66,7 +67,7 @@ class EmployerProfileController extends Controller
 
         return response()->json([
             'message' => 'Employer profile created successfully.',
-            'profile' => $profile,
+            'profile' => EmployerProfileResource::make($profile)->resolve($request),
         ], 201);
     }
 
@@ -101,7 +102,7 @@ class EmployerProfileController extends Controller
 
         return response()->json([
             'message' => 'Employer profile updated successfully.',
-            'profile' => $profile,
+            'profile' => EmployerProfileResource::make($profile)->resolve($request),
         ]);
     }
 }

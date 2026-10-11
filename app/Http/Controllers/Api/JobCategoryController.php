@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Resources\JobCategoryResource;
 use App\Models\JobCategory;
 use Illuminate\Http\Request;
 
@@ -15,7 +16,7 @@ class JobCategoryController extends Controller
     {
         $categories = JobCategory::all();
 
-        return response()->json($categories);
+        return response()->json(JobCategoryResource::collection($categories)->resolve());
     }
 
     /**
@@ -32,7 +33,7 @@ class JobCategoryController extends Controller
 
         return response()->json([
             'message' => 'Job category created successfully',
-            'category' => $category,
+            'category' => JobCategoryResource::make($category)->resolve($request),
         ], 201);
     }
 
@@ -49,7 +50,7 @@ class JobCategoryController extends Controller
             ], 404);
         }
 
-        return response()->json($category);
+        return response()->json(JobCategoryResource::make($category)->resolve());
     }
 
     /**
@@ -74,7 +75,7 @@ class JobCategoryController extends Controller
 
         return response()->json([
             'message' => 'Job category updated successfully',
-            'category' => $category,
+            'category' => JobCategoryResource::make($category)->resolve($request),
         ]);
     }
 

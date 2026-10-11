@@ -3,26 +3,22 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Api\JobPostIndexRequest;
+use App\Http\Requests\Api\StoreJobPostRequest;
 use App\Http\Resources\JobPostResource;
-use Illuminate\Http\Request;
 use App\Models\JobPost;
-use App\Models\JobCategory;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 
 class JobPostController extends Controller
 {
     /**
      * Display a listing of the resource.
      */
-    public function index(Request $request)
+    public function index(JobPostIndexRequest $request)
     {
-        $filters = $request->validate([
-            'q' => 'sometimes|string|max:255',
-            'category_id' => 'sometimes|integer|exists:job_categories,id',
-            'location' => 'sometimes|string|max:255',
-            'employment_type' => 'sometimes|in:full_time,part_time,remote,freelance,internship',
-            'per_page' => 'sometimes|integer|min:1|max:100',
-            'page' => 'sometimes|integer|min:1',
-        ]);
+        $filters = $request->validated();
 
         $query = JobPost::publiclyVisible()
             ->with(['category', 'employer', 'skills']);
@@ -58,64 +54,37 @@ class JobPostController extends Controller
     /**
      * Store a newly created resource in storage.
      */
-    public function store(Request $request)
+    public function store(StoreJobPostRequest $request)
     {
-        $validated
-            = $request->validate([
-                'category_id' => 'required|exists:job_categories,id',
-                'title' => 'required|string|max:255',
-                'description' => 'required|string',
+        $validated = $request->validated();
 
-                'requirements' => 'nullable|string',
-                'location' => 'nullable|string|max:255',
-
-                'employment_type' => 'nullable|in:full_time,part_time,remote,freelance,internship',
-
-                'salary_min' => 'nullable|integer|min:0',
-                'salary_max' => 'nullable|integer|min:0',
-                'salary_currency' => 'nullable|string|max:10',
-
-                'contact_email' => 'nullable|email|required_without_all:contact_phone,google_form_url',
-                'contact_phone' => 'nullable|string',
-                'google_form_url' => 'nullable|url',
-
-                'status' => 'required|in:active,closed',
-                'expires_at' => 'nullable|date',
-                'skills' => 'nullable|array',
-                'skills.*' => 'exists:skills,id',
+        $jobPost = DB::transaction(function () use ($validated, $request): JobPost {
+            $jobPost = JobPost::create([
+                'employer_id' => $request->user()->id,
+                'category_id' => $validated['category_id'],
+                'title' => $validated['title'],
+                'description' => $validated['description'],
+                'requirements' => $validated['requirements'] ?? null,
+                'location' => $validated['location'] ?? null,
+                'employment_type' => $validated['employment_type'] ?? null,
+                'salary_min' => $validated['salary_min'] ?? null,
+                'salary_max' => $validated['salary_max'] ?? null,
+                'salary_currency' => $validated['salary_currency'] ?? null,
+                'contact_email' => $validated['contact_email'] ?? null,
+                'contact_phone' => $validated['contact_phone'] ?? null,
+                'google_form_url' => $validated['google_form_url'] ?? null,
+                'status' => $validated['status'],
+                'expires_at' => $validated['expires_at'] ?? null,
             ]);
-        $employerId = auth()->id();
+            $jobPost->skills()->sync($validated['skills'] ?? []);
 
-        $jobPost = JobPost::create([
-            'employer_id' => $employerId,
-            'category_id' => $validated['category_id'] ?? null,
-            'title' => $validated['title'],
-            'description' => $validated['description'],
-
-            'requirements' => $validated['requirements'] ?? null,
-            'location' => $validated['location'] ?? null,
-            'employment_type' => $validated['employment_type'] ?? null,
-
-            'salary_min' => $validated['salary_min'] ?? null,
-            'salary_max' => $validated['salary_max'] ?? null,
-            'salary_currency' => $validated['salary_currency'] ?? null,
-
-            'contact_email' => $validated['contact_email'] ?? null,
-            'contact_phone' => $validated['contact_phone'] ?? null,
-            'google_form_url' => $validated['google_form_url'] ?? null,
-
-            'status' => $validated['status'],
-            'expires_at' => $validated['expires_at'] ?? null,
-        ]);
-        $jobPost->skills()->sync($validated['skills'] ?? []);
-
+            return $jobPost;
+        });
 
         return response()->json([
             'message' => 'Job post created successfully',
-            'job_post' => $jobPost,
+            'job_post' => JobPostResource::make($jobPost)->resolve($request),
         ], 201);
-
-
     }
 
     /**
@@ -146,11 +115,7 @@ class JobPostController extends Controller
         if (!$post) {
             return response()->json(['message' => 'Job post not found'], 404);
         }
-        if ($post->employer_id !== auth()->id()) {
-            return response()->json([
-                'message' => 'Unauthorized'
-            ], 403);
-        }
+        Gate::authorize('update', $post);
 
         $validated
             = $request->validate([
@@ -177,9 +142,10 @@ class JobPostController extends Controller
                 'skills.*' => 'exists:skills,id',
             ]);
 
-        $post->update($validated);
-
-        $syncResult = $post->skills()->sync($validated['skills'] ?? []);
+        DB::transaction(function () use ($post, $validated): void {
+            $post->update($validated);
+            $post->skills()->sync($validated['skills'] ?? []);
+        });
 
         return new JobPostResource($post->load(['category', 'employer', 'skills']));
     }
@@ -197,15 +163,12 @@ class JobPostController extends Controller
             ], 404);
         }
 
-        if ($post->employer_id !== auth()->id()) {
-            return response()->json([
-                'message' => 'Unauthorized'
-            ], 403);
-        }
+        Gate::authorize('delete', $post);
 
-        $post->skills()->detach();
-
-        $post->delete();
+        DB::transaction(function () use ($post): void {
+            $post->skills()->detach();
+            $post->delete();
+        });
 
         return response()->json([
             'message' => 'Job post deleted'

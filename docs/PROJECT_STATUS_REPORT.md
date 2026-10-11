@@ -2,6 +2,14 @@
 
 > Audit based on the repository contents reviewed on 2026-10-10. This report records what is present in code, what was exercised, and what remains unverified. No authoritative product requirements document was found in the reviewed project files, so absence from code is not presented as a confirmed contractual requirement.
 
+## Current Follow-up (2026-10-11)
+
+The API is now versioned under `/api/v1`; the former unversioned `/api/...` endpoints are not registered. All 28 current route entries retain their HTTP methods, controllers, role checks, and Sanctum requirements. The v1 route group applies a general limit of 120 requests per minute per client IP, with an additional 10-per-minute limit on registration and login. Job-post writes now use database transactions for row/skill-pivot consistency, ownership checks are also centralized in `JobPostPolicy`, and request validation for auth, job search/create, and employer application pagination uses Form Requests. Existing resources now explicitly serialize users, profiles, categories, and skills while retaining the existing top-level response envelopes.
+
+Cross-origin frontend access is configured through `CORS_ALLOWED_ORIGINS` in [config/cors.php](../config/cors.php); configure exact production frontend origins and set `APP_DEBUG=false`. No migrations or database changes were made. The complete integration guide is [API_FRONTEND_DOCUMENTATION.md](../API_FRONTEND_DOCUMENTATION.md). Existing feature tests still use the old unversioned paths; they were not modified per task constraints, so those route assertions require a future test-only update before relying on them against v1.
+
+Sections below preserve the original 2026-10-10 audit snapshot and are historical where they conflict with this follow-up.
+
 ## 1. Scope and Evidence
 
 CareerLy is currently represented by a Laravel API backend and a minimal Laravel/Vite starter page. Evidence reviewed includes `routes/api.php`, `routes/web.php`, API controllers and middleware, Eloquent models, migrations, `composer.json`, `package.json`, and feature tests.
@@ -10,20 +18,20 @@ CareerLy is currently represented by a Laravel API backend and a minimal Laravel
 
 يعتمد هذا التقرير على ملفات المشروع التي تمت مراجعتها بتاريخ 2026-10-10. يتكوّن CareerLy حاليًا من واجهة خلفية API باستخدام Laravel وصفحة ابتدائية بسيطة من Laravel/Vite. شملت المراجعة المسارات ووحدات التحكم والوسيط والنماذج وترحيلات قاعدة البيانات والاعتماديات والاختبارات. لم يُعثر على وثيقة رسمية لمتطلبات المنتج؛ لذلك لا يُفترض أن كل ميزة غير موجودة في الشيفرة مطلب مؤكد.
 
-## 2. Route Inventory
+## 2. Historical Route Inventory (2026-10-10)
 
 | Method and path | Access | Implemented behavior | Evidence |
 |---|---|---|---|
 | `GET /` | Public | Renders the Laravel `welcome` view. | [routes/web.php](../routes/web.php), [welcome.blade.php](../resources/views/welcome.blade.php) |
-| `GET /api/test` | Public | Returns a small API health message. | [routes/api.php](../routes/api.php) |
-| `POST /api/register`, `POST /api/login` | Public | Validates registration/login data and returns a Sanctum token. Registration allows `employer` or `job_seeker`, defaulting to `job_seeker`. | [AuthController.php](../app/Http/Controllers/Api/AuthController.php) |
-| `GET /api/job-posts`, `GET /api/job-posts/{jobPost}` | Public | Lists and shows job posts using a JSON resource. The list currently loads every non-soft-deleted post, without a status or expiry filter. | [JobPostController.php](../app/Http/Controllers/Api/JobPostController.php), [JobPostResource.php](../app/Http/Resources/JobPostResource.php) |
-| `POST /api/job-posts`, `PUT /api/job-posts/{jobPost}`, `DELETE /api/job-posts/{jobPost}` | Sanctum-authenticated employer | Creates, updates, and soft-deletes posts. Update/delete check ownership. | [routes/api.php](../routes/api.php), [JobPostController.php](../app/Http/Controllers/Api/JobPostController.php) |
-| `GET/POST/PUT/DELETE /api/job-categories` and item routes | Sanctum-authenticated admin | Category CRUD. | [routes/api.php](../routes/api.php), [JobCategoryController.php](../app/Http/Controllers/Api/JobCategoryController.php) |
-| `GET/POST/PUT/DELETE /api/skills` and item routes | Sanctum-authenticated admin | Skill CRUD. | [routes/api.php](../routes/api.php), [SkillController.php](../app/Http/Controllers/Api/SkillController.php) |
-| `GET /api/employer-profile`, `GET /api/job-seeker-profile` | Sanctum-authenticated; role checked by controller | Reads the authenticated user's matching profile; returns 404 if a profile record does not exist. | [EmployerProfileController.php](../app/Http/Controllers/Api/EmployerProfileController.php), [JobSeekerProfileController.php](../app/Http/Controllers/Api/JobSeekerProfileController.php) |
+| `GET /api/v1/test` | Public | Returns a small API health message. | [routes/api.php](../routes/api.php) |
+| `POST /api/v1/register`, `POST /api/v1/login` | Public | Validates registration/login data and returns a Sanctum token. Registration allows `employer` or `job_seeker`, defaulting to `job_seeker`. | [AuthController.php](../app/Http/Controllers/Api/AuthController.php) |
+| `GET /api/v1/job-posts`, `GET /api/v1/job-posts/{jobPost}` | Public | Lists and shows job posts using a JSON resource. The list currently loads every non-soft-deleted post, without a status or expiry filter. | [JobPostController.php](../app/Http/Controllers/Api/JobPostController.php), [JobPostResource.php](../app/Http/Resources/JobPostResource.php) |
+| `POST /api/v1/job-posts`, `PUT /api/v1/job-posts/{jobPost}`, `DELETE /api/v1/job-posts/{jobPost}` | Sanctum-authenticated employer | Creates, updates, and soft-deletes posts. Update/delete check ownership. | [routes/api.php](../routes/api.php), [JobPostController.php](../app/Http/Controllers/Api/JobPostController.php) |
+| `GET/POST/PUT/DELETE /api/v1/job-categories` and item routes | Sanctum-authenticated admin | Category CRUD. | [routes/api.php](../routes/api.php), [JobCategoryController.php](../app/Http/Controllers/Api/JobCategoryController.php) |
+| `GET/POST/PUT/DELETE /api/v1/skills` and item routes | Sanctum-authenticated admin | Skill CRUD. | [routes/api.php](../routes/api.php), [SkillController.php](../app/Http/Controllers/Api/SkillController.php) |
+| `GET /api/v1/employer-profile`, `GET /api/v1/job-seeker-profile` | Sanctum-authenticated; role checked by controller | Reads the authenticated user's matching profile; returns 404 if a profile record does not exist. | [EmployerProfileController.php](../app/Http/Controllers/Api/EmployerProfileController.php), [JobSeekerProfileController.php](../app/Http/Controllers/Api/JobSeekerProfileController.php) |
 
-No logout, profile create/update, job application, saved-job, password-reset, or dedicated search/filter routes were found in the inspected route file.
+At the time of this historical audit, logout, profile write, application, and search routes had not all been verified. Refer to the current v1 route inventory in [API_FRONTEND_DOCUMENTATION.md](../API_FRONTEND_DOCUMENTATION.md).
 
 **بالعربية:**
 
@@ -44,7 +52,7 @@ Relevant evidence: [User.php](../app/Models/User.php), [JobPost.php](../app/Mode
 
 تتضمن قاعدة البيانات حسابات بأدوار مختلفة، وملفات منفصلة لأصحاب العمل والباحثين عن عمل، وإعلانات وظائف مرتبطة بالتصنيفات والمهارات. تدعم الإعلانات الحذف المنطقي وتحتوي حقولًا للحالة وتاريخ الانتهاء. يدعم الإعداد SQLite وMySQL؛ ويعتمد الاتصال الفعلي على ملف `.env` والخدمة المثبتة محليًا، لذلك لا يعني وجود إعداد MySQL أن الاتصال به قد تم التحقق منه.
 
-## 4. Implementation Status
+## 4. Historical Implementation Status
 
 | Area | Evidence-based status | Remaining work |
 |---|---|---|
@@ -71,7 +79,7 @@ Relevant evidence: [User.php](../app/Models/User.php), [JobPost.php](../app/Mode
 
 نجحت مجموعة الاختبارات المركزة `ApiAuthorizationTest.php` بعدد 11 اختبارًا دون إخفاق. لم يُشغّل كامل الاختبارات، ولم يتم التحقق من MySQL أو إعداد النشر. كما لم يُنفّذ بناء Vite، لذلك لا توجد نتيجة مؤكدة للبناء الأمامي.
 
-## 6. Confirmed Problems and Unverified Risks
+## 6. Historical Problems and Unverified Risks
 
 ### Confirmed from the current code
 

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Enums\JobApplicationStatus;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Api\IndexJobApplicationsRequest;
 use App\Http\Resources\JobApplicationResource;
 use App\Models\JobApplication;
 use App\Models\JobPost;
@@ -46,11 +47,9 @@ class JobApplicationController extends Controller
         ], 201);
     }
 
-    public function index(Request $request): \Illuminate\Http\Resources\Json\AnonymousResourceCollection
+    public function index(IndexJobApplicationsRequest $request): \Illuminate\Http\Resources\Json\AnonymousResourceCollection
     {
-        $filters = $request->validate([
-            'per_page' => 'sometimes|integer|min:1|max:100',
-        ]);
+        $filters = $request->validated();
 
         $applications = JobApplication::query()
             ->whereHas('jobPost', fn($query) => $query->where('employer_id', $request->user()->id))

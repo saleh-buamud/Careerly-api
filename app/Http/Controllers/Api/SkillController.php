@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Resources\SkillResource;
 use App\Models\Skill;
 use Illuminate\Http\Request;
 
@@ -12,7 +13,7 @@ class SkillController extends Controller
     {
         $skills = Skill::all();
 
-        return response()->json($skills);
+        return response()->json(SkillResource::collection($skills)->resolve());
     }
 
     public function store(Request $request)
@@ -25,7 +26,7 @@ class SkillController extends Controller
 
         return response()->json([
             'message' => 'Skill created successfully',
-            'skill' => $skill,
+            'skill' => SkillResource::make($skill)->resolve($request),
         ], 201);
     }
 
@@ -39,7 +40,7 @@ class SkillController extends Controller
             ], 404);
         }
 
-        return response()->json($skill);
+        return response()->json(SkillResource::make($skill)->resolve());
     }
 
     public function update(Request $request, string $id)
@@ -60,7 +61,7 @@ class SkillController extends Controller
 
         return response()->json([
             'message' => 'Skill updated successfully',
-            'skill' => $skill,
+            'skill' => SkillResource::make($skill)->resolve($request),
         ]);
     }
 

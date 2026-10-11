@@ -93,3 +93,21 @@ This verifies the recorded schema metadata is unchanged and provides evidence te
 - MySQL timezone behavior at the exact `expires_at` boundary should be confirmed for the intended deployment timezone.
 - Cookie-based Sanctum SPA behavior and live HTTP/Postman behavior were not tested; automated feature tests use Laravel's application-level client.
 - Production readiness, concurrency/load behavior beyond the unique-constraint protection, and deployment configuration were not assessed.
+
+## API v1 and Backend Refactor Follow-up (2026-10-11)
+
+The API route entry point now groups the existing 28 operations under `/api/v1`. The former unversioned `/api/...` route aliases are not registered. HTTP methods, controller actions, route names where present, and role/Sanctum middleware were preserved. Existing job update remains `PUT`; application status update remains `PATCH`.
+
+Additional backend changes:
+
+- Added a general `throttle:120,1` middleware limit to v1 routes and an additional `throttle:10,1` limit to registration/login.
+- Added Form Requests for register/login, job-list query validation, job creation, and employer application pagination.
+- Added and explicitly registered `JobPostPolicy` for employer ownership checks on update/delete.
+- Wrapped job-post row plus skill-pivot create/update/delete mutations in database transactions.
+- Wired existing profile/category/skill resources into controllers and added `UserResource`, preserving response envelopes while explicitly exposing fields.
+- Added `config/cors.php` with a configurable exact-origin allowlist, credentials disabled, and local Vite origins in `.env.example`. Production origins must be configured by deployers. Trusted proxy IPs remain deployment-specific and were not guessed.
+- No database schema, migration, data, or test files were changed for this refactor.
+
+Verification after the v1 route change: the cached route table initially hid the source changes; the generated route cache was cleared. `php artisan route:list --path=api -vv` then showed 28 routes under `api/v1`, the expected role/auth middleware, general 120/minute throttling, and stricter 10/minute throttling on auth routes. Changed PHP files passed PHP syntax/editor diagnostics.
+
+The test files were intentionally not changed per task instructions and still call the old unversioned `/api/...` URLs. Therefore the MySQL suite results above are historical results from before the version-prefix change; no post-refactor full test run is claimed. Update the existing tests to v1 paths in a separately authorized testing task before treating that suite as current for v1.

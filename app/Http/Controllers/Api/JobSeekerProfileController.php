@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Enums\UserRole;
 use App\Http\Controllers\Controller;
+use App\Http\Resources\JobSeekerProfileResource;
 use Illuminate\Http\Request;
 
 class JobSeekerProfileController extends Controller
@@ -33,7 +34,7 @@ class JobSeekerProfileController extends Controller
                 'email' => $user->email,
                 'phone' => $user->phone,
             ],
-            'profile' => $profile,
+            'profile' => JobSeekerProfileResource::make($profile)->resolve($request),
         ]);
     }
     public function store(Request $request)
@@ -64,7 +65,7 @@ class JobSeekerProfileController extends Controller
 
         return response()->json([
             'message' => 'Job seeker profile created successfully.',
-            'profile' => $profile,
+            'profile' => JobSeekerProfileResource::make($profile)->resolve($request),
         ], 201);
     }
 
@@ -98,7 +99,7 @@ class JobSeekerProfileController extends Controller
 
         return response()->json([
             'message' => 'Job seeker profile updated successfully.',
-            'profile' => $profile,
+            'profile' => JobSeekerProfileResource::make($profile)->resolve($request),
         ]);
     }
 }
